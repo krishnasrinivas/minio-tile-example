@@ -1,0 +1,170 @@
+---
+# The high-level description of your tile.
+# Replace these properties with real values.
+#
+name: minio-tile # By convention lowercase with dashes
+icon_file: resources/icon.png
+label: Minio Object Storage
+description: Minio Object Storage
+# metadata_version: 1.8                 # Optional, defaults to 1.5
+
+# Global defaults (all optional)
+#
+# org: test-org                         # Name of org to create for your apps
+# space: test-space                     # Name of space to create for your apps
+# apply_open_security_group: true       # Apply open security group, default: false
+
+# Specify the packages to be included in your tile.
+# The format of the section to include depends on the type
+# of package you are describing. For fragments of each type
+# that you can copy & paste, see:
+#
+# https://github.com/cf-platform-eng/tile-generator/blob/master/README.md
+#
+
+packages:
+- name: minio-osb
+  type: app-broker
+#  label: My fabulous appplication      # Package name for use in human-readable labels in OpsManager
+  manifest:
+    path: resources/broker
+    command: ./broker
+    buildpack: binary_buildpack
+    enable_global_access_to_plans: true
+    needs_cf_credentials: true
+- name: routing
+  type: bosh-release
+  path: https://bosh.io/d/github.com/cloudfoundry-incubator/cf-routing-release
+  version: latest
+- name: minio
+  type: bosh-release
+  path: resources/minio.tgz
+  jobs:
+  - name: agent
+    templates:
+    - name: agent
+      release: minio
+    - name: route_registrar
+      release: routing
+    static_ip: 1
+    properties:
+      cf_domain: (( ..cf.cloud_controller.system_domain.value ))
+      nats:
+        machines: (( ..cf.nats.ips ))
+        user: (( ..cf.nats.credentials.identity ))
+        password: (( ..cf.nats.credentials.password ))
+        port: 4222
+      route_registrar:
+        routes:
+        - name: route9001
+          port: 9001
+          registration_interval: 20s
+          uris:
+          - 9001.minio.(( ..cf.cloud_controller.system_domain.value ))
+        - name: route9002
+          port: 9002
+          registration_interval: 20s
+          uris:
+          - 9002.minio.(( ..cf.cloud_controller.system_domain.value ))
+        - name: route9003
+          port: 9003
+          registration_interval: 20s
+          uris:
+          - 9003.minio.(( ..cf.cloud_controller.system_domain.value ))
+
+
+# Include stemcell criteria if you don't want to accept the default.
+# Since this stemcell is only used to run pre and post errands, we
+# strongly recommend you leave this alone so that your tile always
+# runs with the latest stemcell.
+#
+# stemcell_criteria:
+#   os: ubuntu-trusty
+#   requires_cpi: false
+#   version: '3062'
+
+# Add properties you want to pass to your applications.
+# Properties specified here will not be configurable by the user.
+#
+# properties:
+# - name: example_property
+#   type: string
+#   default: specify a value
+#   label: Label for the field on the GUI
+#   description: Longer description of the field's purpose
+
+properties:
+- name: agent_credentials
+  type: simple_credentials
+
+# Uncomment this section if you want to display forms with configurable
+# properties in Ops Manager. These properties will be passed to your
+# applications as environment variables. You can also refer to them
+# elsewhere in this template by using:
+#     (( .properties.<property-name> ))
+# 
+# forms:
+# - name: buildpack_properties
+#   label: Buildpack
+#   description: Buildpack_properties
+#   properties:
+#   - name: buildpack_rank
+#     type: integer
+#     default: 0
+#     label: Buildpack rank for this buildpack_rank
+#     description: Ranking of this buildpack relative to others
+
+service_plan_forms:
+- name: service_plans
+  label: Service Plans
+  description: Specify the plans you want to offer
+  properties:
+  - name: plan_backend
+    label: Plan backend
+    type: dropdown_select
+    configurable: true
+    description: "Backend type"
+    options:
+    - name: shared_fs
+      label: "shared fs"
+      default: true
+    - name: dedicated_fs
+      label: "dedicated fs"
+    - name: dedicated_erasure
+      label: "dedicated erasure"
+  - name: disk_size
+    label: Disk Size
+    type: integer
+    configurable: true
+    description: "Disk size in GB"
+    default: 20
+  - name: number_vms
+    label: Number of VMs
+    type: integer
+    configurable: true
+    description: "Valid only for dedicated erasure"
+
+# Add any dependencies your tile has on other installed products.
+# This is often appropriate when using automatic service provisioning
+# for any of your packages above, with services provided by other
+# products.
+#
+# requires_product_versions:
+# - name: p-mysql
+#   version: '~> 1.7'
+
+# Customize upgrade parameters if the defaults don't meet your needs.
+#
+# update:
+#   canaries: 1
+#   canary_watch_time: 10000-100000
+#   max_in_flight: 1
+#   update_watch_time: 10000-100000
+
+# If prior versions of your tile are installed and configured, their
+# property values will not be overwritten by new defaults provided
+# in this file. If that is your intent, you must do the overwriting
+# explicitly using JavaScript migration functions, like so:
+#
+# migration: |
+#   properties['properties']['.properties.org']['value'] = 'system';
