@@ -1,170 +1,133 @@
 ---
-# The high-level description of your tile.
-# Replace these properties with real values.
-#
-name: minio-tile # By convention lowercase with dashes
+name: minio # By convention lowercase with dashes
 icon_file: resources/icon.png
 label: Minio Object Storage
 description: Minio Object Storage
-# metadata_version: 1.8                 # Optional, defaults to 1.5
-
-# Global defaults (all optional)
-#
-# org: test-org                         # Name of org to create for your apps
-# space: test-space                     # Name of space to create for your apps
-# apply_open_security_group: true       # Apply open security group, default: false
-
-# Specify the packages to be included in your tile.
-# The format of the section to include depends on the type
-# of package you are describing. For fragments of each type
-# that you can copy & paste, see:
-#
-# https://github.com/cf-platform-eng/tile-generator/blob/master/README.md
-#
+metadata_version: 1.8                 # Optional, defaults to 1.5
+service_broker: true
 
 packages:
-- name: minio-osb
-  type: app-broker
-#  label: My fabulous appplication      # Package name for use in human-readable labels in OpsManager
-  manifest:
-    path: resources/broker
-    command: ./broker
-    buildpack: binary_buildpack
-    enable_global_access_to_plans: true
-    needs_cf_credentials: true
-- name: routing
-  type: bosh-release
-  path: https://bosh.io/d/github.com/cloudfoundry-incubator/cf-routing-release
-  version: latest
 - name: minio
   type: bosh-release
   path: resources/minio.tgz
+- name: on-demand-service-broker
+  type: bosh-release
+  path: resources/on-demand-service-broker-0.17.0.tgz
   jobs:
-  - name: agent
+  - name: broker
     templates:
-    - name: agent
+    - name: broker
+      release: on-demand-service-broker
+    - name: minio-service-adapter
       release: minio
-    - name: route_registrar
-      release: routing
-    static_ip: 1
+    dynamic_ip: 1
+    memory: 1024
+    ephemeral_disk: 2048
+    persistent_disk: 1024
+    cpu: 1
     properties:
-      cf_domain: (( ..cf.cloud_controller.system_domain.value ))
-      nats:
-        machines: (( ..cf.nats.ips ))
-        user: (( ..cf.nats.credentials.identity ))
-        password: (( ..cf.nats.credentials.password ))
-        port: 4222
-      route_registrar:
-        routes:
-        - name: route9001
-          port: 9001
-          registration_interval: 20s
-          uris:
-          - 9001.minio.(( ..cf.cloud_controller.system_domain.value ))
-        - name: route9002
-          port: 9002
-          registration_interval: 20s
-          uris:
-          - 9002.minio.(( ..cf.cloud_controller.system_domain.value ))
-        - name: route9003
-          port: 9003
-          registration_interval: 20s
-          uris:
-          - 9003.minio.(( ..cf.cloud_controller.system_domain.value ))
-
-
-# Include stemcell criteria if you don't want to accept the default.
-# Since this stemcell is only used to run pre and post errands, we
-# strongly recommend you leave this alone so that your tile always
-# runs with the latest stemcell.
-#
-# stemcell_criteria:
-#   os: ubuntu-trusty
-#   requires_cpi: false
-#   version: '3062'
-
-# Add properties you want to pass to your applications.
-# Properties specified here will not be configurable by the user.
-#
-# properties:
-# - name: example_property
-#   type: string
-#   default: specify a value
-#   label: Label for the field on the GUI
-#   description: Longer description of the field's purpose
+      startup_banner: true
+      port: 8080
+      username: (( .properties.basic_auth.identity ))
+      password: (( .properties.basic_auth.password ))
+      disable_ssl_cert_verification: (( ..cf.ha_proxy.skip_cert_verify.value ))
+      bosh:
+        url: https://(( $director.hostname )):25555
+        root_ca_cert: (( $director.ca_public_key ))
+        authentication:
+          uaa:
+            url: https://(( $director.hostname )):8443
+            client_id: (( $self.uaa_client_name ))
+            client_secret: (( $self.uaa_client_secret ))
+      cf:
+        url: https://api.(( ..cf.cloud_controller.system_domain.value ))
+        authentication:
+          url: https://uaa.(( ..cf.cloud_controller.system_domain.value ))
+          user_credentials:
+            username: (( ..cf.uaa.system_services_credentials.identity ))
+            password: (( ..cf.uaa.system_services_credentials.password ))
+      service_deployment:
+        releases:
+        - name: minio
+          version: 6+dev.7
+          jobs: [minio-server]
+        stemcell:
+          os: ubuntu-trusty
+          version: (( $self.stemcell_version ))
+      service_catalog:
+        id: AAAAAAAA-203D-4966-A6F1-60A9E2300F72
+        service_name: minio-odb
+        service_description: Minio Object Storage
+        global_quotas:
+          service_instance_limit: 10
+        bindable: false
+        plan_updatable: true
+        tags: [minio]
+        plans:
+        - name: (( .properties.plan_name.value ))
+          plan_id: (( .properties.plan_id.value ))
+          description: (( .properties.plan_description.value ))
+          quotas:
+            service_instance_limit: 10
+          instance_groups:
+          - name: standalone-ig
+            vm_type: (( .properties.minio_vm_type.value ))
+            vm_extensions: (( .properties.minio_vm_extensions.value ))
+            instances: 1
+            persistent_disk: (( .properties.minio_disk_type.value ))
+            networks: [(( $self.service_network ))]
+            azs: (( .properties.minio_multi_select.value ))
+          properties:
+            credential:
+              accesskey: minio
+              secretkey: minio123
+              port: 9000
 
 properties:
-- name: agent_credentials
+- name: plan_id
+  type: uuid
+  configurable: false
+- name: basic_auth
   type: simple_credentials
+  configurable: false
 
-# Uncomment this section if you want to display forms with configurable
-# properties in Ops Manager. These properties will be passed to your
-# applications as environment variables. You can also refer to them
-# elsewhere in this template by using:
-#     (( .properties.<property-name> ))
-# 
-# forms:
-# - name: buildpack_properties
-#   label: Buildpack
-#   description: Buildpack_properties
-#   properties:
-#   - name: buildpack_rank
-#     type: integer
-#     default: 0
-#     label: Buildpack rank for this buildpack_rank
-#     description: Ranking of this buildpack relative to others
-
-service_plan_forms:
-- name: service_plans
-  label: Service Plans
-  description: Specify the plans you want to offer
+forms:
+- name: minio_odb_form
+  label: Minio service
   properties:
-  - name: plan_backend
-    label: Plan backend
-    type: dropdown_select
+  - name: plan_name
+    label: Plan name
+    description: Name of the plan.
+    type: string
     configurable: true
-    description: "Backend type"
+  - name: plan_description
+    label: Plan description
+    description: Description of the plan
+    type: string
+    configurable: true
+  - name: minio_vm_type
+    label: VM Type
+    description: VM Type
+    type: vm_type_dropdown
+    configurable: true
+  - name: minio_vm_extensions
+    label: VM Extensions
+    description: VM Extensions
+    type: multi_select_options
+    configurable: true
+    optional: true
     options:
-    - name: shared_fs
-      label: "shared fs"
-      default: true
-    - name: dedicated_fs
-      label: "dedicated fs"
-    - name: dedicated_erasure
-      label: "dedicated erasure"
-  - name: disk_size
-    label: Disk Size
-    type: integer
+    - name: "public_ip"
+      label: "Internet Connected VMs (on supported IaaS providers)"
+  - name: minio_disk_type
+    label: Disk type
+    description: Disk type
+    type: disk_type_dropdown
     configurable: true
-    description: "Disk size in GB"
-    default: 20
-  - name: number_vms
-    label: Number of VMs
-    type: integer
+  - name: minio_multi_select
+    label: availability zone(s)
+    description: Select one or more availability zones
+    type: service_network_az_multi_select
     configurable: true
-    description: "Valid only for dedicated erasure"
+    optional: false
 
-# Add any dependencies your tile has on other installed products.
-# This is often appropriate when using automatic service provisioning
-# for any of your packages above, with services provided by other
-# products.
-#
-# requires_product_versions:
-# - name: p-mysql
-#   version: '~> 1.7'
-
-# Customize upgrade parameters if the defaults don't meet your needs.
-#
-# update:
-#   canaries: 1
-#   canary_watch_time: 10000-100000
-#   max_in_flight: 1
-#   update_watch_time: 10000-100000
-
-# If prior versions of your tile are installed and configured, their
-# property values will not be overwritten by new defaults provided
-# in this file. If that is your intent, you must do the overwriting
-# explicitly using JavaScript migration functions, like so:
-#
-# migration: |
-#   properties['properties']['.properties.org']['value'] = 'system';
