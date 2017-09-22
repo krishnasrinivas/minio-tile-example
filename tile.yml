@@ -6,6 +6,55 @@ description: Minio Object Storage
 metadata_version: 1.8                 # Optional, defaults to 1.5
 service_broker: true
 
+
+properties:
+- name: plan_id
+  type: uuid
+  configurable: false
+- name: basic_auth
+  type: simple_credentials
+  configurable: false
+
+forms:
+- name: minio_odb_form
+  label: Minio service
+  properties:
+  - name: plan_name
+    label: Plan name
+    description: Name of the plan.
+    type: string
+    configurable: true
+  - name: plan_description
+    label: Plan description
+    description: Description of the plan
+    type: string
+    configurable: true
+  - name: minio_vm_type
+    label: VM Type
+    description: VM Type
+    type: vm_type_dropdown
+    configurable: true
+  - name: minio_vm_extensions
+    label: VM Extensions
+    description: VM Extensions
+    type: multi_select_options
+    configurable: true
+    optional: true
+    options:
+    - name: "public_ip"
+      label: "Internet Connected VMs (on supported IaaS providers)"
+  - name: minio_disk_type
+    label: Disk type
+    description: Disk type
+    type: disk_type_dropdown
+    configurable: true
+  - name: minio_multi_select
+    label: availability zone(s)
+    description: Select one or more availability zones
+    type: service_network_az_multi_select
+    configurable: true
+    optional: false
+
 packages:
 - name: minio
   type: bosh-release
@@ -83,51 +132,23 @@ packages:
               secretkey: minio123
               port: 9000
 
-properties:
-- name: plan_id
-  type: uuid
-  configurable: false
-- name: basic_auth
-  type: simple_credentials
-  configurable: false
-
-forms:
-- name: minio_odb_form
-  label: Minio service
+- name: register-on-demand-service-broker
+  templates:
+  - name: register-broker
+    release: on-demand-service-broker
   properties:
-  - name: plan_name
-    label: Plan name
-    description: Name of the plan.
-    type: string
-    configurable: true
-  - name: plan_description
-    label: Plan description
-    description: Description of the plan
-    type: string
-    configurable: true
-  - name: minio_vm_type
-    label: VM Type
-    description: VM Type
-    type: vm_type_dropdown
-    configurable: true
-  - name: minio_vm_extensions
-    label: VM Extensions
-    description: VM Extensions
-    type: multi_select_options
-    configurable: true
-    optional: true
-    options:
-    - name: "public_ip"
-      label: "Internet Connected VMs (on supported IaaS providers)"
-  - name: minio_disk_type
-    label: Disk type
-    description: Disk type
-    type: disk_type_dropdown
-    configurable: true
-  - name: minio_multi_select
-    label: availability zone(s)
-    description: Select one or more availability zones
-    type: service_network_az_multi_select
-    configurable: true
-    optional: false
-
+    broker_name: minio-odb
+    cf:
+      api_url: https://api.(( ..cf.cloud_controller.system_domain.value ))
+      admin_username: (( ..cf.uaa.system_services_credentials.identity ))
+      admin_password: (( ..cf.uaa.system_services_credentials.password ))
+    disable_ssl_cert_verification: (( ..cf.ha_proxy.skip_cert_verify.value ))
+  lifecycle: errand
+  post_deploy: true
+  memory: 1024
+  ephemeral_disk: 2048
+  persistent_disk: 0
+  cpu: 1
+  dynamic_ip: 1
+  networks:
+  - name: default
